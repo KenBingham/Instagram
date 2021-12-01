@@ -51,7 +51,7 @@ def get_account_feed(url, params=None):
     
     return json_payload, querystring
 #############################################################################
-response_list = get_account_feed('https://instagram85.p.rapidapi.com/account/4752530901/feed'
+response_list = get_account_feed('https://instagram85.p.rapidapi.com/account/########/feed'
 #############################################################################
 columns = json_payload['data'][0].keys()
 df = pd.DataFrame(columns=columns)
