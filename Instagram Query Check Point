@@ -1,0 +1,81 @@
+import json
+import pandas as pd
+import requests
+import shutil
+import io 
+import base64
+from PIL import Image
+#############################################################################
+def get_user_id_by_username(username):
+
+    url = f"https://instagram85.p.rapidapi.com/account/{username}/info"
+
+    headers = {
+        'x-rapidapi-host': "instagram85.p.rapidapi.com",
+        'x-rapidapi-key': "#####"
+        }
+
+    response = requests.request("GET", url, headers=headers)
+
+    return response.text
+#############################################################################    
+def get_account_feed(url, params=None):
+    response_list = []
+
+    # https://rapidapi.com/premium-apis-premium-apis-default/api/instagram85/
+
+    headers = {
+    'x-rapidapi-host': "instagram85.p.rapidapi.com",
+    }
+
+    json_payload, querystring = make_instagram_api_call(url, params=None)
+    response_list.append(json_payload)
+
+    while querystring != None:
+        json_payload, querystring = make_instagram_api_call(url, params=querystring)
+        response_list.append(json_payload)
+
+        return response_list
+ #############################################################################
+ def make_instagram_api_call(url, params=None):
+    response = requests.request("GET", url, headers=headers, params=params)
+    json_payload = json.loads(response.text)
+    querystring = None
+    
+    if json_payload:
+        print(json_payload['message'])
+        if json_payload['meta']['has_next'] == True:
+            querystring = {"pageId":json_payload['meta']['next_page']}
+    else:
+        pass
+    
+    return json_payload, querystring
+#############################################################################
+response_list = get_account_feed('https://instagram85.p.rapidapi.com/account/4752530901/feed'
+#############################################################################
+columns = json_payload['data'][0].keys()
+df = pd.DataFrame(columns=columns)
+df.head()
+#############################################################################
+for json_payload in response_list:
+    for payload in range(0,len(json_payload['data'])):                
+        df = df.append(json_payload['data'][payload], ignore_index=True)
+#############################################################################
+def download_instagram_feed_images(df):
+    for row in range(0,len(df['images'])):
+        # CREATES UNIQUE NAME FOR FILE BASED ON URL PATH
+        filename = df['images'][row]['original']['standard'].split('.jpg')[0].split('/')[-1]
+        
+        # DOWNLOADS IMAGE FROM PATH
+        img_resp = requests.get(df['images'][row]['original']['standard'])
+        
+        if img_resp.status_code == 200:
+            # CONVERTS TO IMAGE
+            true_image = Image.open(io.BytesIO(img_resp.content))
+            true_image.save(f"{filename}.jpg")
+            #with open(filename,'wb') as f:
+            #    shutil.copyfileobj(true_image, f)
+        
+            print('Image sucessfully Downloaded: ', filename)
+        else:
+            print('Image Couldn\'t be retreived')
