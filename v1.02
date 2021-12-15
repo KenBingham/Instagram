@@ -1,0 +1,155 @@
+import requests
+import pandas as pd
+import json
+from datetime import datetime
+import urllib.request
+import os
+import ipywidgets as widgets
+from IPython.display import display
+############################################################################################################################
+def convert_time_stamp(payload):
+    return datetime.utcfromtimestamp(payload).strftime('%Y-%m-%d %H:%M:%S')
+    
+def get_user_info(username):
+    url = "https://instagram28.p.rapidapi.com/user_info"
+
+    querystring = {"user_name":f"{username}"}
+
+    headers = {
+        'x-rapidapi-host': "instagram28.p.rapidapi.com",
+        'x-rapidapi-key': "XXX"
+        }
+
+    response = requests.request("GET", url, headers=headers, params=querystring)
+
+    return response.text
+    
+def get_media(user_id, end_cursor=None):
+    url = "https://instagram28.p.rapidapi.com/medias"
+    
+    if end_cursor:
+        querystring = {"user_id":f"{user_id}","next_cursor":f"{end_cursor}","batch_size":"40"}
+    else:
+        querystring = {"user_id":f"{user_id}","batch_size":"40"}
+
+    headers = {
+        'x-rapidapi-host': "instagram28.p.rapidapi.com",
+        'x-rapidapi-key': "XXX"
+        }
+
+    response = requests.request("GET", url, headers=headers, params=querystring)
+
+    return response.text
+    
+def get_user_id(resp):
+    if type(resp) != dict:
+        resp = json.loads(resp)
+    user_id = resp['data']['user']['id']
+    return user_id
+    
+def extract_end_cursor(user_info_payload):
+    if user_info_payload['data']['user']['edge_owner_to_timeline_media']['page_info']['has_next_page'] == True:
+        end_cursor = user_info_payload['data']['user']['edge_owner_to_timeline_media']['page_info']['end_cursor']
+        return end_cursor
+    else:
+        return None
+        
+    def extract_media_information(node, user_info_payload):
+    if type(user_info_payload) != dict:
+        user_info_payload = json.loads(user_info_payload)
+    media_data = user_info_payload['data']['user']['edge_owner_to_timeline_media']['edges'][0]['node'].keys()
+    parent_media_df = pd.DataFrame(columns=media_data)
+
+    dictionary = {}
+    #for key,value in user_info_payload['data']['user']['edge_owner_to_timeline_media']['edges'][0]['node'].items():
+    for key,value in node['node'].items():
+        dictionary[key] = value
+        
+        #media_data = node['data']['user']['edge_owner_to_timeline_media']['edges'][0]['node'].keys()
+        #media_data = user_info_payload['data']['user']['edge_owner_to_timeline_media']['edges'][0]['node'].keys()
+        child_media_df = pd.DataFrame(columns=media_data)
+
+        child_media_df = child_media_df.append(dictionary, ignore_index=True)
+        child_media_df = child_media_df.iloc[-1]
+
+    parent_media_df = parent_media_df.append(child_media_df)
+    return parent_media_df
+    
+def get_media_dataframe(user_info_payload):
+    if type(user_info_payload) != dict:
+        user_info_payload = json.loads(user_info_payload)
+        
+    end_cursor = extract_end_cursor(user_info_payload)
+    
+    media_data = user_info_payload['data']['user']['edge_owner_to_timeline_media']['edges'][0]['node'].keys()
+    parent_media_df = pd.DataFrame(columns=media_data)
+    
+    for node in user_info_payload['data']['user']['edge_owner_to_timeline_media']['edges']:
+        dataframe = extract_media_information(node, user_info_payload)
+        parent_media_df = parent_media_df.append(dataframe, ignore_index=True)
+    
+    parent_media_df['taken_at_timestamp_fixed'] = parent_media_df['taken_at_timestamp'].apply(lambda x: convert_time_stamp(x))    
+    
+    return parent_media_df, end_cursor
+    
+def main_search(nm_user_id):
+    media_payload = get_media(nm_user_id)
+    media_dataframe, end_cursor = get_media_dataframe(media_payload)
+    if end_cursor:
+        media_payload_2 = get_media(nm_user_id, end_cursor)
+        media_dataframe_2, end_cursor = get_media_dataframe(media_payload_2)
+        master_dataframe = media_dataframe.append(media_dataframe_2, ignore_index=True)
+    else:
+        master_dataframe = media_dataframe
+    return master_dataframe
+    
+def write_user_info_to_file(user_info_payload):
+    json_user_info_payload = json.loads(user_info_payload)
+    name = json_user_info_payload['data']['user']['full_name']
+    text_file = open(f"{name}_user_info.txt", "w", encoding="utf-8")
+    text_file.write(user_info_payload)
+    text_file.close()
+    
+def extract_images_from_url(url):
+    img_data = requests.get(url).content
+    filename = url.split('.jpg')[0].split('/')[-1]
+    with open(f'{filename}.jpg', 'wb') as handler:
+        handler.write(img_data)
+############################################################################################################################        
+instagram_username = input('Enter Username Here')
+############################################################################################################################
+button = widgets.Button(description="Search Instagram")
+output = widgets.Output()
+image_download_boolean = widgets.Checkbox(
+    value=False,
+    description='Download Images',
+    disabled=False,
+    indent=False
+)
+
+display(image_download_boolean, button, output)
+
+def on_button_clicked(b):
+    with output:
+        print(f"Searching Instagram for User: {instagram_username}")
+        user_info_payload = get_user_info(instagram_username)
+        nm_user_id = get_user_id(user_info_payload)
+        master_df = main_search(nm_user_id)
+        
+        try:
+            master_df.to_csv(f'{instagram_username}_media_file.csv')
+        except:
+            print('File with that name already exists')
+        
+        try:
+            write_user_info_to_file(user_info_payload)
+        except:
+            print('File with that name already exists')
+            
+        if image_download_boolean.value == True:
+            print('Starting Image Download')
+            master_df['display_url'].apply(lambda x: extract_images_from_url(x))
+        print('Search Complete.')
+
+button.on_click(on_button_clicked)
+############################################################################################################################
